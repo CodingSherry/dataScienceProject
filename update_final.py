@@ -1,4 +1,6 @@
-<!DOCTYPE html>
+import os
+
+html_content = """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
@@ -161,3 +163,9 @@
     </script>
 </body>
 </html>
+"""
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print("✅ Data Science 最终版已生成！包含距离分析和度中心性分析。")
