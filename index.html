@@ -1,15 +1,18 @@
+
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Global Flight Analysis</title>
     <style>
+        /* === 你的原始样式 (保持不变) === */
         body { background: #080808; margin: 0; overflow: hidden; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
         canvas { display: block; }
-        #ui-layer { 
+        #ui-layer {
             position: absolute; top: 30px; left: 30px; pointer-events: none;
             background: rgba(0, 0, 0, 0.7); padding: 20px; border-radius: 8px;
             border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(5px);
+            z-index: 10; /* 确保在最上层 */
         }
         h1 { margin: 0 0 10px 0; font-size: 18px; color: #fff; text-transform: uppercase; letter-spacing: 2px; }
         .metric { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; color: #ccc; }
@@ -20,12 +23,30 @@
             border-radius: 4px;
         }
         .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #888; }
+
+        /* === 新增：录制控制面板样式 === */
+        #record-ui {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 20; display: flex; gap: 10px;
+            background: rgba(20, 20, 20, 0.8); padding: 10px 20px; border-radius: 50px;
+            border: 1px solid #444; backdrop-filter: blur(5px);
+        }
+        .btn {
+            background: #333; color: #fff; border: 1px solid #555;
+            padding: 8px 16px; border-radius: 20px; cursor: pointer;
+            font-size: 13px; font-weight: 600; transition: 0.2s;
+        }
+        .btn:hover { background: #555; transform: scale(1.05); }
+        .btn-start { background: #bd34fe; border-color: #bd34fe; }
+        .btn-stop { background: #ff4757; border-color: #ff4757; display: none; }
+        #status { color: #aaa; font-size: 12px; line-height: 34px; margin-left: 5px; }
     </style>
 </head>
 <body>
+    <!-- 你的原始 UI 层 -->
     <div id="ui-layer">
         <h1>Flight Network Analysis</h1>
-        
+
         <div style="margin-top: 15px; margin-bottom: 5px; font-size: 11px; color: #aaa; text-transform: uppercase;">Node Size (Degree Centrality)</div>
         <div class="metric"><div class="color-box" style="background: rgba(255, 50, 50, 0.9); border-radius: 50%;"></div>Major Hubs (>50 Routes)</div>
         <div class="metric"><div class="color-box" style="background: rgba(0, 255, 255, 0.6); border-radius: 50%;"></div>Regional Airports</div>
@@ -37,14 +58,35 @@
             <span>Long (> 10k km)</span>
         </div>
     </div>
+
+    <!-- 新增：录制按钮 -->
+    <div id="record-ui">
+        <button id="btnStart" class="btn btn-start">🎥 Start Render</button>
+        <button id="btnStop" class="btn btn-stop">⏹ Stop & Save</button>
+        <span id="status">Ready</span>
+    </div>
+
     <canvas id="globe"></canvas>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="https://unpkg.com/topojson@3"></script>
+    <!-- 新增：CCapture 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/ccapture.js-npmfixed@1.1.0/build/CCapture.all.min.js"></script>
 
     <script>
         const canvas = document.getElementById("globe");
         const context = canvas.getContext("2d");
+
+        // === CCapture 初始化 ===
+        // 强制 60FPS，输出 WebM 视频
+        let capturer = new CCapture({
+            format: 'webm',
+            framerate: 60,
+            quality: 100,
+            name: "flight_analysis_video"
+        });
+        let isRecording = false;
+        // ======================
 
         function resize() {
             const width = window.innerWidth;
@@ -64,11 +106,9 @@
             .translate([width / 2, height / 2]);
         const path = d3.geoPath(projection, context);
 
-        // 🌟 1. 定义颜色比例尺 (实现 PDF 中的 Section 4.1)
-        // 使用 Turbo 或 Plasma 这种科学可视化常用的色谱
-        // 0km -> 蓝色, 5000km -> 青色, 10000km -> 粉红/紫色
-        const colorScale = d3.scaleSequential(d3.interpolateCool) 
-            .domain([0, 12000]); // 假设最长航线大概 12000 公里
+        // 🌟 1. 定义颜色比例尺 (保持不变)
+        const colorScale = d3.scaleSequential(d3.interpolateCool)
+            .domain([0, 12000]);
 
         Promise.all([
             d3.json("https://unpkg.com/world-atlas@1/world/110m.json"),
@@ -77,68 +117,67 @@
             const land = topojson.feature(world, world.objects.countries);
             const airportMap = new Map(data.airports.map(d => [d.code, d]));
 
-            // 🌟 2. 预处理：计算度和距离
+            // 🌟 2. 预处理 (保持不变)
             const airportCounts = {};
-            
+
             const routes = data.routes.map(r => {
                 const src = airportMap.get(r.source);
                 const tgt = airportMap.get(r.target);
                 if (!src || !tgt) return null;
 
-                // 统计度 (Degree)
                 airportCounts[r.source] = (airportCounts[r.source] || 0) + 1;
                 airportCounts[r.target] = (airportCounts[r.target] || 0) + 1;
 
-                // 计算地理距离 (Distance)
-                // d3.geoDistance 返回的是弧度，乘以地球半径 6371 得到公里
                 const distance = d3.geoDistance(src.loc, tgt.loc) * 6371;
 
                 return {
-                    type: "LineString", 
+                    type: "LineString",
                     coordinates: [src.loc, tgt.loc],
-                    distance: distance // 把距离存进去，一会儿画图用
+                    distance: distance
                 };
             }).filter(d => d);
 
-            // 绑定度数据回机场
             data.airports.forEach(d => d.degree = airportCounts[d.code] || 0);
-            data.airports.sort((a, b) => a.degree - b.degree); // 小机场先画
+            data.airports.sort((a, b) => a.degree - b.degree);
 
             const rScale = d3.scaleSqrt().domain([0, d3.max(Object.values(airportCounts))]).range([1, 6]);
 
             d3.timer((elapsed) => {
                 projection.rotate([elapsed * 0.005, -10]);
-                context.clearRect(0, 0, width, height);
+
+                // [修改点 1] 显式填充背景色
+                // 原代码是 clearRect，对于录制视频来说，我们需要一个实心底色。
+                // 这里使用了你 CSS 中的 body 背景色 #080808
+                context.fillStyle = "#080808";
+                context.fillRect(0, 0, width, height);
+                // context.clearRect(0, 0, width, height); // 注释掉原本的 clearRect
 
                 // 画地球背景
                 context.beginPath(); path({type: "Sphere"}); context.fillStyle = "#111"; context.fill();
-                
+
                 // 画陆地
-                context.beginPath(); path(land); context.fillStyle = "#222"; context.fill(); 
+                context.beginPath(); path(land); context.fillStyle = "#222"; context.fill();
                 context.strokeStyle = "#000"; context.lineWidth = 0.5; context.stroke();
 
-                // 🌟 3. 画航线：根据距离上色 (核心分析功能)
+                // 🌟 3. 画航线 (保持不变)
                 routes.forEach(route => {
                     context.beginPath();
                     path(route);
-                    // 这里的颜色是动态计算的！
                     context.strokeStyle = colorScale(route.distance);
-                    // 距离越远，线条稍微粗一点点，透明度低一点
-                    context.globalAlpha = 0.3; 
+                    context.globalAlpha = 0.3;
                     context.lineWidth = 0.6;
                     context.stroke();
                 });
-                context.globalAlpha = 1.0; // 恢复不透明
+                context.globalAlpha = 1.0;
 
-                // 画机场
+                // 画机场 (保持不变)
                 data.airports.forEach(d => {
                     const p = projection(d.loc);
-                    // 简单的背面剔除
                     if (d3.geoDistance(d.loc, projection.invert([width/2, height/2])) > 1.57) return;
 
                     context.beginPath();
                     context.arc(p[0], p[1], rScale(d.degree), 0, 2 * Math.PI);
-                    
+
                     if (d.degree > 50) {
                         context.fillStyle = "rgba(255, 50, 50, 0.9)";
                     } else {
@@ -146,10 +185,15 @@
                     }
                     context.fill();
                 });
-                
-                // 加上光晕，增加美感
+
+                // 画光晕 (保持不变)
                 context.beginPath(); path({type: "Sphere"});
                 context.strokeStyle = "rgba(255,255,255,0.1)"; context.lineWidth = 1.5; context.stroke();
+
+                // [修改点 2] 录制钩子
+                if (isRecording) {
+                    capturer.capture(canvas);
+                }
             });
         });
 
@@ -157,6 +201,26 @@
              const dim = resize();
              width = dim.width; height = dim.height;
              projection.translate([width / 2, height / 2]).scale(height / 1.9);
+        });
+
+        // === 按钮逻辑 ===
+        document.getElementById('btnStart').addEventListener('click', () => {
+            isRecording = true;
+            capturer.start();
+            document.getElementById('btnStart').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'block';
+            document.getElementById('status').innerText = "Recording (wait for rotation)...";
+            document.getElementById('status').style.color = "#bd34fe";
+        });
+
+        document.getElementById('btnStop').addEventListener('click', () => {
+            isRecording = false;
+            capturer.stop();
+            capturer.save();
+            document.getElementById('btnStart').style.display = 'block';
+            document.getElementById('btnStop').style.display = 'none';
+            document.getElementById('status').innerText = "Saved to Downloads";
+            document.getElementById('status').style.color = "#aaa";
         });
     </script>
 </body>
