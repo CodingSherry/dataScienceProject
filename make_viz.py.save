@@ -1,0 +1,214 @@
+import os
+
+print("正在生成可视化代码...")
+
+# 这里的 html_content 包含了最新的 D3.js 交互逻辑
+html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Global Flight Analysis</title>
+    <style>
+        body { background: #080808; margin: 0; overflow: hidden; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        
+        #ui-layer { 
+            position: absolute; top: 30px; left: 30px; pointer-events: none;
+            background: rgba(0, 0, 0, 0.75); padding: 20px; border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(8px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            width: 220px;
+        }
+        
+        h1 { margin: 0 0 15px 0; font-size: 16px; color: #fff; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        
+        .metric { display: flex; align-items: center; margin-bottom: 8px; font-size: 12px; color: #ccc; }
+        .color-box { width: 10px; height: 10px; margin-right: 10px; border-radius: 2px; }
+        
+        /* 按钮样式 */
+        .controls { margin-top: 20px; pointer-events: auto; }
+        button {
+            background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff; padding: 8px 12px; border-radius: 4px; cursor: pointer;
+            font-size: 11px; width: 100%; margin-bottom: 8px; transition: all 0.2s;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        button:hover { background: rgba(255, 255, 255, 0.25); border-color: #fff; }
+        button.active { background: #00f2fe; color: #000; font-weight: bold; border-color: #00f2fe; }
+
+        .legend-gradient {
+            width: 100%; height: 6px; margin: 8px 0;
+            background: linear-gradient(to right, #4facfe, #00f2fe, #f093fb, #f5576c);
+            border-radius: 3px;
+        }
+        .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: #666; }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <h1>Network Analysis</h1>
+        
+        <div style="font-size: 10px; color: #888; margin-bottom:5px;">NODE SIZE (DEGREE)</div>
+        <div class="metric"><div class="color-box" style="background: rgba(255, 50, 50, 1); border-radius: 50%; box-shadow: 0 0 5px red;"></div>Super Hub (>50)</div>
+        <div class="metric"><div class="color-box" style="background: rgba(255, 255, 255, 0.5); border-radius: 50%;"></div>Local Airport</div>
+
+        <div style="font-size: 10px; color: #888; margin-top: 15px; margin-bottom:5px;">ROUTE DISTANCE</div>
+        <div class="legend-gradient"></div>
+        <div class="legend-labels"><span>Short</span><span>Long-Haul</span></div>
+
+        <div class="controls">
+            <button id="btn-filter" onclick="toggleFilter()">Filter: All Routes</button>
+            <button id="btn-spin" onclick="toggleSpin()">Rotation: ON</button>
+        </div>
+    </div>
+    <canvas id="globe"></canvas>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+
+    <script>
+        const canvas = document.getElementById("globe");
+        const context = canvas.getContext("2d");
+
+        let config = { isRotating: true, showHubsOnly: false, rotationAngle: 0 };
+
+        function toggleFilter() {
+            config.showHubsOnly = !config.showHubsOnly;
+            const btn = document.getElementById('btn-filter');
+            if (config.showHubsOnly) {
+                btn.innerText = "Filter: Super Hubs";
+                btn.classList.add("active");
+            } else {
+                btn.innerText = "Filter: All Routes";
+                btn.classList.remove("active");
+            }
+            render();
+        }
+
+        function toggleSpin() {
+            config.isRotating = !config.isRotating;
+            const btn = document.getElementById('btn-spin');
+            btn.innerText = config.isRotating ? "Rotation: ON" : "Rotation: PAUSED";
+            btn.style.opacity = config.isRotating ? "1" : "0.6";
+        }
+
+        let drag = d3.drag().on("drag", (event) => {
+            config.isRotating = false;
+            document.getElementById('btn-spin').innerText = "Rotation: PAUSED";
+            const rotate = projection.rotate();
+            projection.rotate([rotate[0] + event.dx * 0.5, rotate[1] - event.dy * 0.5]);
+            render();
+        });
+        d3.select(canvas).call(drag);
+
+        function resize() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = width * dpr; canvas.height = height * dpr;
+            canvas.style.width = width + "px"; canvas.style.height = height + "px";
+            context.scale(dpr, dpr);
+            return { width, height };
+        }
+        let { width, height } = resize();
+
+        const projection = d3.geoOrthographic().scale(height / 2.0).translate([width / 2, height / 2]);
+        const path = d3.geoPath(projection, context);
+        const colorScale = d3.scaleSequential(d3.interpolateCool).domain([0, 12000]);
+        
+        let worldData, flightData, airportMap;
+
+        function render() {
+            if (!worldData || !flightData) return;
+            context.clearRect(0, 0, width, height);
+
+            context.beginPath(); path({type: "Sphere"}); context.fillStyle = "#111"; context.fill();
+            context.beginPath(); path(worldData); context.fillStyle = "#222"; context.fill(); 
+            context.strokeStyle = "#000"; context.lineWidth = 0.5; context.stroke();
+
+            flightData.routes.forEach(route => {
+                if (config.showHubsOnly) {
+                    const src = airportMap.get(route.srcCode);
+                    const tgt = airportMap.get(route.tgtCode);
+                    if (!src || !tgt || src.degree <= 50 || tgt.degree <= 50) return; 
+                }
+                context.beginPath(); path(route);
+                context.strokeStyle = colorScale(route.distance);
+                context.lineWidth = config.showHubsOnly ? 1.5 : 0.6;
+                context.globalAlpha = config.showHubsOnly ? 0.8 : 0.3; 
+                context.stroke();
+            });
+            context.globalAlpha = 1.0;
+
+            flightData.airports.forEach(d => {
+                if (d3.geoDistance(d.loc, projection.invert([width/2, height/2])) > 1.57) return;
+                if (config.showHubsOnly && d.degree <= 50) return;
+
+                const p = projection(d.loc);
+                let r = (config.showHubsOnly || d.degree > 50) ? 4 : 1.5;
+                context.beginPath(); context.arc(p[0], p[1], r, 0, 2 * Math.PI);
+                
+                if (d.degree > 50) {
+                    context.fillStyle = "rgba(255, 50, 50, 0.9)";
+                    context.shadowBlur = 10; context.shadowColor = "red";
+                } else {
+                    context.fillStyle = "rgba(255, 255, 255, 0.6)";
+                    context.shadowBlur = 0;
+                }
+                context.fill(); context.shadowBlur = 0;
+            });
+
+            context.beginPath(); path({type: "Sphere"});
+            context.strokeStyle = "rgba(255,255,255,0.15)"; context.lineWidth = 1.5; context.stroke();
+        }
+
+        Promise.all([
+            d3.json("https://unpkg.com/world-atlas@1/world/110m.json"),
+            d3.json("data.json")
+        ]).then(([world, data]) => {
+            worldData = topojson.feature(world, world.objects.countries);
+            airportMap = new Map(data.airports.map(d => [d.code, d]));
+            const airportCounts = {};
+
+            const processedRoutes = data.routes.map(r => {
+                const src = airportMap.get(r.source);
+                const tgt = airportMap.get(r.target);
+                if (!src || !tgt) return null;
+                airportCounts[r.source] = (airportCounts[r.source] || 0) + 1;
+                airportCounts[r.target] = (airportCounts[r.target] || 0) + 1;
+                return {
+                    type: "LineString", coordinates: [src.loc, tgt.loc],
+                    distance: d3.geoDistance(src.loc, tgt.loc) * 6371,
+                    srcCode: r.source, tgtCode: r.target
+                };
+            }).filter(d => d);
+
+            data.airports.forEach(d => d.degree = airportCounts[d.code] || 0);
+            data.airports.sort((a, b) => a.degree - b.degree);
+            flightData = { airports: data.airports, routes: processedRoutes };
+
+            d3.timer((elapsed) => {
+                if (config.isRotating) {
+                    config.rotationAngle += 0.2;
+                    projection.rotate([config.rotationAngle, -10]);
+                    render();
+                }
+            });
+            render();
+        });
+
+        window.addEventListener('resize', () => {
+             const dim = resize(); width = dim.width; height = dim.height;
+             projection.translate([width / 2, height / 2]).scale(height / 2.0);
+             render();
+        });
+    </script>
+</body>
+</html>
+"""
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print("✅ index.html 已更新！请运行 python -m http.server 查看效果。")

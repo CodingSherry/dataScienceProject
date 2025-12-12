@@ -1,10 +1,15 @@
-<!DOCTYPE html>
+import os
+
+print("正在生成最终进化版可视化代码 (带标签+科技配色)...")
+
+html_content = """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Global Flight Analysis - Pro</title>
     <style>
-        body { background: radial-gradient(circle at center, #0b1a2a 0%, #000000 100%); margin: 0; overflow: hidden; font-family: 'Roboto Mono', monospace; }
+        /* 背景改为深空蓝，更具科技感 */
+        body { background: radial-gradient(circle at center, #0b1a2a 0%, #000000 100%); margin: 0; overflow: hidden; font-family: 'Roboto Mono', 'Helvetica Neue', monospace; }
         canvas { display: block; cursor: grab; }
         canvas:active { cursor: grabbing; }
         
@@ -13,13 +18,16 @@
             background: rgba(10, 20, 30, 0.85); padding: 20px; border-radius: 4px;
             border: 1px solid rgba(0, 242, 254, 0.3); backdrop-filter: blur(10px);
             box-shadow: 0 0 20px rgba(0, 242, 254, 0.1);
-            width: 240px; color: #fff;
+            width: 240px;
+            color: #fff;
         }
         
-        h1 { margin: 0 0 15px 0; font-size: 16px; color: #00f2fe; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(0, 242, 254, 0.3); padding-bottom: 10px; }
+        h1 { margin: 0 0 15px 0; font-size: 16px; color: #00f2fe; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid rgba(0, 242, 254, 0.3); padding-bottom: 10px; text-shadow: 0 0 5px rgba(0, 242, 254, 0.5); }
+        
         .metric { display: flex; align-items: center; margin-bottom: 8px; font-size: 11px; color: #aaccff; }
         .color-box { width: 8px; height: 8px; margin-right: 10px; }
         
+        /* 按钮样式升级 */
         .controls { margin-top: 20px; pointer-events: auto; }
         button {
             background: rgba(0, 242, 254, 0.1); border: 1px solid rgba(0, 242, 254, 0.4);
@@ -27,22 +35,29 @@
             font-size: 11px; width: 100%; margin-bottom: 8px; transition: all 0.2s;
             text-transform: uppercase; letter-spacing: 1px; font-family: inherit;
         }
-        button:hover { background: rgba(0, 242, 254, 0.3); }
-        button.active { background: #00f2fe; color: #000; font-weight: bold; }
+        button:hover { background: rgba(0, 242, 254, 0.3); box-shadow: 0 0 10px rgba(0, 242, 254, 0.4); }
+        button.active { background: #00f2fe; color: #000; font-weight: bold; box-shadow: 0 0 15px rgba(0, 242, 254, 0.6); }
 
-        .legend-gradient { width: 100%; height: 4px; margin: 8px 0; background: linear-gradient(to right, #00f2fe, #4facfe, #f093fb, #ff0055); border-radius: 2px; }
+        .legend-gradient {
+            width: 100%; height: 4px; margin: 8px 0;
+            background: linear-gradient(to right, #00f2fe, #4facfe, #f093fb, #ff0055);
+            border-radius: 2px;
+        }
         .legend-labels { display: flex; justify-content: space-between; font-size: 9px; color: #557799; }
     </style>
 </head>
 <body>
     <div id="ui-layer">
         <h1>Global Network</h1>
+        
         <div style="font-size: 9px; color: #557799; margin-bottom:5px;">HUB STATUS</div>
-        <div class="metric"><div class="color-box" style="background: #ff3366; border-radius: 50%; box-shadow: 0 0 5px #ff3366;"></div>Major Hub</div>
-        <div class="metric"><div class="color-box" style="background: rgba(255, 255, 255, 0.6); border-radius: 50%;"></div>Local Airport</div>
+        <div class="metric"><div class="color-box" style="background: #ff3366; border-radius: 50%; box-shadow: 0 0 5px #ff3366;"></div>Super Hub (>100 Routes)</div>
+        <div class="metric"><div class="color-box" style="background: rgba(255, 255, 255, 0.6); border-radius: 50%;"></div>Connecting Airport</div>
+
         <div style="font-size: 9px; color: #557799; margin-top: 15px; margin-bottom:5px;">FLIGHT RANGE</div>
         <div class="legend-gradient"></div>
         <div class="legend-labels"><span>Regional</span><span>Intercontinental</span></div>
+
         <div class="controls">
             <button id="btn-filter" onclick="toggleFilter()">View: All Routes</button>
             <button id="btn-spin" onclick="toggleSpin()">Auto-Rotation: ON</button>
@@ -58,29 +73,39 @@
         const canvas = document.getElementById("globe");
         const context = canvas.getContext("2d");
 
-        let config = { isRotating: true, showHubsOnly: false, showLabels: true, rotationAngle: 0 };
-        // 专门用来存储 Top 20 机场的集合
-        let topHubsSet = new Set();
+        let config = { 
+            isRotating: true, 
+            showHubsOnly: false, 
+            showLabels: true, // 新增：控制标签显示
+            rotationAngle: 0 
+        };
 
+        // --- 交互功能 ---
         function toggleFilter() {
             config.showHubsOnly = !config.showHubsOnly;
             const btn = document.getElementById('btn-filter');
             if (config.showHubsOnly) {
-                btn.innerText = "View: Top Hubs"; btn.classList.add("active");
+                btn.innerText = "View: Super Hubs";
+                btn.classList.add("active");
             } else {
-                btn.innerText = "View: All Routes"; btn.classList.remove("active");
+                btn.innerText = "View: All Routes";
+                btn.classList.remove("active");
             }
             render();
         }
 
         function toggleSpin() {
             config.isRotating = !config.isRotating;
-            document.getElementById('btn-spin').innerText = config.isRotating ? "Auto-Rotation: ON" : "Auto-Rotation: PAUSED";
+            const btn = document.getElementById('btn-spin');
+            btn.innerText = config.isRotating ? "Auto-Rotation: ON" : "Auto-Rotation: PAUSED";
+            btn.style.opacity = config.isRotating ? "1" : "0.6";
         }
         
         function toggleLabels() {
             config.showLabels = !config.showLabels;
-            document.getElementById('btn-labels').innerText = config.showLabels ? "Labels: ON" : "Labels: OFF";
+            const btn = document.getElementById('btn-labels');
+            btn.innerText = config.showLabels ? "Labels: ON" : "Labels: OFF";
+            btn.style.opacity = config.showLabels ? "1" : "0.6";
             render();
         }
 
@@ -106,6 +131,7 @@
 
         const projection = d3.geoOrthographic().scale(height / 2.0).translate([width / 2, height / 2]);
         const path = d3.geoPath(projection, context);
+        // 配色升级：从青色(Short)到洋红(Long)
         const colorScale = d3.scaleSequential(d3.interpolateCool).domain([0, 13000]);
         
         let worldData, flightData, airportMap;
@@ -114,22 +140,25 @@
             if (!worldData || !flightData) return;
             context.clearRect(0, 0, width, height);
 
+            // 1. [升级] 画海洋 (深蓝渐变)
             let grad = context.createRadialGradient(width/2, height/2, height/5, width/2, height/2, height/1.8);
-            grad.addColorStop(0, "#081119"); grad.addColorStop(1, "#000508");
-            context.beginPath(); path({type: "Sphere"}); context.fillStyle = grad; context.fill();
+            grad.addColorStop(0, "#081119");
+            grad.addColorStop(1, "#000508");
+            
+            context.beginPath(); path({type: "Sphere"}); 
+            context.fillStyle = grad; context.fill();
 
+            // 2. [升级] 画陆地 (科技蓝灰 + 发光边缘)
             context.beginPath(); path(worldData); 
-            context.fillStyle = "#1a2b3c"; context.fill(); 
-            context.strokeStyle = "rgba(0, 242, 254, 0.3)"; context.lineWidth = 0.8; context.stroke();
+            context.fillStyle = "#1a2b3c"; context.fill(); // 陆地填充色
+            context.strokeStyle = "rgba(0, 242, 254, 0.3)"; context.lineWidth = 0.8; context.stroke(); // 边缘发光色
 
+            // 3. 画航线
             flightData.routes.forEach(route => {
-                // 降低过滤门槛：只要连接到 Top Hubs 就显示
                 if (config.showHubsOnly) {
                     const src = airportMap.get(route.srcCode);
                     const tgt = airportMap.get(route.tgtCode);
-                    if (!src || !tgt) return;
-                    // 这里把门槛改成了 20 (或者是否在Top20列表里)
-                    if (src.degree <= 20 && tgt.degree <= 20) return; 
+                    if (!src || !tgt || src.degree <= 50 || tgt.degree <= 50) return; 
                 }
                 context.beginPath(); path(route);
                 context.strokeStyle = colorScale(route.distance);
@@ -139,22 +168,22 @@
             });
             context.globalAlpha = 1.0;
 
+            // 4. 画机场 & [升级] 标签
             flightData.airports.forEach(d => {
+                // 背面剔除
                 if (d3.geoDistance(d.loc, projection.invert([width/2, height/2])) > 1.57) return;
-                
-                // 过滤逻辑
-                if (config.showHubsOnly && d.degree <= 20) return;
+                if (config.showHubsOnly && d.degree <= 50) return;
 
                 const p = projection(d.loc);
-                // 只要是 Top Hub，就画大一点
-                const isTopHub = topHubsSet.has(d.code);
+                const isSuperHub = d.degree > 100; // 定义超级枢纽阈值
 
+                // 画点
                 context.beginPath(); 
-                let r = isTopHub ? 4 : (config.showHubsOnly ? 2 : 1.2);
+                let r = isSuperHub ? 4 : (config.showHubsOnly ? 2 : 1.2);
                 context.arc(p[0], p[1], r, 0, 2 * Math.PI);
                 
-                if (isTopHub) {
-                    context.fillStyle = "#ff3366";
+                if (d.degree > 50) {
+                    context.fillStyle = "#ff3366"; // 醒目的玫红色
                     context.shadowBlur = 10; context.shadowColor = "#ff3366";
                 } else {
                     context.fillStyle = "rgba(255, 255, 255, 0.7)";
@@ -162,21 +191,23 @@
                 }
                 context.fill(); context.shadowBlur = 0;
 
-                // [修复] 标签显示逻辑
-                // 只要开启了标签，且这个机场在 Top Hub 列表里，就显示
-                if (config.showLabels && isTopHub) {
+                // [升级] 画文字标签 (只有当开启标签，且是超级枢纽时才显示)
+                if (config.showLabels && isSuperHub) {
                     context.fillStyle = "#fff";
                     context.font = "bold 11px 'Roboto Mono', monospace";
                     context.textAlign = "left";
-                    context.shadowBlur = 4; context.shadowColor = "#000";
+                    context.shadowBlur = 4; context.shadowColor = "#000"; // 文字描边效果
+                    // 稍微偏移一点，别盖住点
                     context.fillText(d.code, p[0] + 8, p[1] + 4);
                     context.shadowBlur = 0;
                 }
             });
 
+            // 5. [升级] 大气层光晕 (Atmosphere Glow)
             context.beginPath(); path({type: "Sphere"});
             let atmosphere = context.createRadialGradient(width/2, height/2, height/2.1, width/2, height/2, height/1.95);
-            atmosphere.addColorStop(0, "rgba(0, 242, 254, 0)"); atmosphere.addColorStop(1, "rgba(0, 242, 254, 0.4)");
+            atmosphere.addColorStop(0, "rgba(0, 242, 254, 0)");
+            atmosphere.addColorStop(1, "rgba(0, 242, 254, 0.4)");
             context.fillStyle = atmosphere; context.fill();
         }
 
@@ -202,13 +233,7 @@
             }).filter(d => d);
 
             data.airports.forEach(d => d.degree = airportCounts[d.code] || 0);
-            
-            // [关键修改] 先按繁忙程度排序
-            data.airports.sort((a, b) => b.degree - a.degree);
-            
-            // [关键修改] 强行选出前 30 个机场作为 Top Hubs，不管度数是多少
-            data.airports.slice(0, 30).forEach(d => topHubsSet.add(d.code));
-
+            data.airports.sort((a, b) => a.degree - b.degree);
             flightData = { airports: data.airports, routes: processedRoutes };
 
             d3.timer((elapsed) => {
@@ -229,3 +254,9 @@
     </script>
 </body>
 </html>
+"""
+
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print("✅ PRO版可视化生成完毕！包含标签、光晕和科技配色。")
